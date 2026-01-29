@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -41,7 +40,7 @@ export default function SignInPage() {
     formData.set("password", data.password);
     const result = await signInAction(formData);
     if (result?.error) {
-      setError(result.error);
+      setError(String(result.error));
       setIsLoading(false);
       return;
     }

@@ -37,13 +37,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     jwt({ token, user }) {
       if (user) {
         token.id = user.id;
-        token.email = user.email;
+        token.email = user.email ?? undefined;
       }
       return token;
     },
     session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id!;
+        session.user.id = typeof token.id === "string" ? token.id : "";
         session.user.email = token.email ?? "";
       }
       return session;

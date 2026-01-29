@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "~/server/db";
 import { notificationSettings, holdings, priceCache } from "~/server/db/schema";
 import { eq } from "drizzle-orm";
-import { env } from "~/env.js";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
