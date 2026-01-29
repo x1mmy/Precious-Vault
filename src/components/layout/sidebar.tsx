@@ -2,18 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
-import { supabase } from "~/lib/supabase";
-import { useRouter } from "next/navigation";
-import { 
-  LayoutDashboard, 
-  Coins, 
-  TrendingUp, 
-  Settings, 
+import {
+  LayoutDashboard,
+  Coins,
+  TrendingUp,
+  Settings,
   LogOut,
   Menu,
-  X
+  X,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -46,12 +45,10 @@ interface SidebarProps {
 
 export function Sidebar({ children }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push("/");
+    await signOut({ callbackUrl: "/" });
   };
 
   return (
@@ -87,7 +84,7 @@ export function Sidebar({ children }: SidebarProps) {
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="flex items-center justify-center h-16 px-4 border-b border-border">
-            <h1 className="text-xl font-bold text-primary">
+            <h1 className="font-display text-xl font-normal text-primary tracking-tight">
               PreciousVault
             </h1>
           </div>

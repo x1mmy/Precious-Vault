@@ -5,12 +5,11 @@ import { useRouter } from "next/navigation";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { supabase } from "~/lib/supabase-client";
+import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import type { Holding, PriceCache } from "~/types/holdings";
 import type { DetailedPrices } from "~/types/prices";
-import type { User } from "@supabase/supabase-js";
 
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
@@ -36,11 +35,11 @@ const holdingSchema = z.object({
 type HoldingForm = z.infer<typeof holdingSchema>;
 
 export default function HoldingsPage() {
-  const [, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { status } = useSession();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
   const router = useRouter();
+  const loading = status === "loading";
 
   // tRPC queries
   const { data: holdings = [], refetch: refetchHoldings } = api.holdings.getAll.useQuery() as { data: Holding[], refetch: () => Promise<unknown> };
@@ -84,30 +83,10 @@ export default function HoldingsPage() {
   });
 
   useEffect(() => {
-    const getUser = async (): Promise<void> => {
-      const { data: { user }, error } = await supabase.auth.getUser();
-      
-      if (error || !user) {
-        router.push("/sign-in");
-      } else {
-        setUser(user);
-      }
-      setLoading(false);
-    };
-
-    void getUser();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session): Promise<void> => {
-      if (event === 'SIGNED_OUT' || !session) {
-        router.push("/sign-in");
-      } else {
-        setUser(session.user);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [router]);
+    if (status === "unauthenticated") {
+      router.push("/sign-in");
+    }
+  }, [status, router]);
 
   const onSubmit = async (data: HoldingForm): Promise<void> => {
     if (editingHolding) {

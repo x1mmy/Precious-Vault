@@ -1,19 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "~/lib/supabase";
+import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Sidebar } from "~/components/layout/sidebar";
 import { Coins, Plus } from "lucide-react";
+import { useEffect } from "react";
 
 export default function DashboardPage() {
-  const [user, setUser] = useState<{ email?: string } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: session, status } = useSession();
   const router = useRouter();
 
   // tRPC queries
@@ -22,30 +21,13 @@ export default function DashboardPage() {
   const { data: detailedPrices } = api.prices.getDetailedPrices.useQuery();
 
   useEffect(() => {
-    const getUser = async () => {
-      const { data: { user }, error } = await supabase.auth.getUser();
-      
-      if (error || !user) {
-        router.push("/sign-in");
-      } else {
-        setUser(user);
-      }
-      setLoading(false);
-    };
+    if (status === "unauthenticated") {
+      router.replace("/sign-in");
+    }
+  }, [status, router]);
 
-    void getUser();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' || !session) {
-        router.push("/sign-in");
-      } else {
-        setUser(session.user);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [router]);
+  const user = session?.user;
+  const loading = status === "loading";
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-AU', {
@@ -72,10 +54,10 @@ export default function DashboardPage() {
   const dashboardContent = (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between stagger-1">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-muted-foreground">
+          <h1 className="font-display text-3xl font-normal text-foreground tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground mt-0.5">
             Welcome back, {user?.email}
           </p>
         </div>
@@ -97,23 +79,23 @@ export default function DashboardPage() {
 
       {/* Portfolio Overview Cards */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
+        <Card className="stagger-1 border-primary/20 bg-card/80">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
               Total Portfolio Value
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">
+            <div className="font-display text-3xl font-normal tracking-tight text-primary">
               {formatCurrency(summary?.totalValue ?? 0)}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground mt-1">
               Combined gold & silver value
             </p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="stagger-2">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Gold Holdings
@@ -123,16 +105,16 @@ export default function DashboardPage() {
             </Badge>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">
+            <div className="font-display text-2xl font-normal">
               {formatOz(summary?.totalGoldOz ?? 0)} oz
             </div>
-            <p className="text-xs text-muted-foreground font-mono">
+            <p className="text-xs text-muted-foreground font-mono mt-1">
               {formatCurrency(summary?.goldValue ?? 0)} AUD
             </p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="stagger-3">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Silver Holdings
@@ -142,23 +124,23 @@ export default function DashboardPage() {
             </Badge>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">
+            <div className="font-display text-2xl font-normal">
               {formatOz(summary?.totalSilverOz ?? 0)} oz
             </div>
-            <p className="text-xs text-muted-foreground font-mono">
+            <p className="text-xs text-muted-foreground font-mono mt-1">
               {formatCurrency(summary?.silverValue ?? 0)} AUD
             </p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="stagger-4">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Total Holdings
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="font-display text-2xl font-normal">
               {summary?.totalHoldings ?? 0}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -188,7 +170,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="stagger-5">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg flex items-center gap-2">
                 <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
@@ -208,9 +190,9 @@ export default function DashboardPage() {
       )}
 
       {/* Recent Holdings */}
-      <Card>
+      <Card className="stagger-5">
         <CardHeader>
-          <CardTitle>Recent Holdings</CardTitle>
+          <CardTitle className="font-display font-normal">Recent Holdings</CardTitle>
           <CardDescription>
             Your latest portfolio additions
           </CardDescription>

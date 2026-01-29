@@ -48,9 +48,10 @@ Stop juggling multiple apps and websites to track your precious metals investmen
 
 ### User Settings
 - Account information and status
+- **Daily digest**: Toggle daily Discord messages with gold/silver spot prices and your portfolio value
 - Preference management (theme, currency)
 - Data export options (CSV)
-- Security controls (password management, sign out)
+- Security controls (sign out)
 
 ---
 
@@ -68,7 +69,9 @@ Stop juggling multiple apps and websites to track your precious metals investmen
 
 ### Backend
 - **[tRPC](https://trpc.io/)** - End-to-end type-safe APIs
-- **[Supabase](https://supabase.com/)** - PostgreSQL database & authentication
+- **[PostgreSQL](https://www.postgresql.org/)** - Database (local or [Neon](https://neon.tech) for Vercel)
+- **[Drizzle ORM](https://orm.drizzle.team/)** - Schema, migrations, and queries
+- **[NextAuth](https://next-auth.js.org/)** - Authentication (Credentials provider)
 - **[TanStack Query](https://tanstack.com/query/)** - Data fetching & caching
 - **[Metals.dev API](https://metals.dev/)** - Real-time precious metals pricing
 
@@ -86,7 +89,7 @@ Stop juggling multiple apps and websites to track your precious metals investmen
 
 - **Node.js** 18.17 or later
 - **pnpm** 10.10.0 or later
-- **Supabase account** (for database & authentication)
+- **PostgreSQL** (local: [Postgres.app](https://postgresapp.com/) or [official installer](https://www.postgresql.org/download/))
 - **Metals.dev API key** (for price data)
 
 ### Installation
@@ -104,12 +107,13 @@ Stop juggling multiple apps and websites to track your precious metals investmen
 
 3. **Set up environment variables**
 
-   Create a `.env.local` file in the root directory:
+   Create a `.env` or `.env.local` file in the root directory:
    ```env
-   # Supabase
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+   # Database (local Postgres or Neon connection string)
+   DATABASE_URL=postgresql://localhost/preciousvalt
+
+   # NextAuth (generate with: openssl rand -base64 32)
+   AUTH_SECRET=your_auth_secret_at_least_32_chars
 
    # Metals.dev API
    METALS_DEV_KEY=your_metals_dev_api_key
@@ -121,75 +125,16 @@ Stop juggling multiple apps and websites to track your precious metals investmen
 
 4. **Set up the database**
 
-   Run the following SQL in your Supabase SQL editor to create the required tables:
-
-   ```sql
-   -- Holdings table
-   CREATE TABLE holdings (
-     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-     metal_type TEXT NOT NULL CHECK (metal_type IN ('gold', 'silver')),
-     weight_oz DECIMAL(10, 4) NOT NULL,
-     form_type TEXT NOT NULL CHECK (form_type IN ('bar', 'coin')),
-     denomination TEXT NOT NULL,
-     quantity INTEGER NOT NULL DEFAULT 1,
-     purchase_price_aud DECIMAL(10, 2),
-     purchase_date TIMESTAMPTZ,
-     notes TEXT,
-     created_at TIMESTAMPTZ DEFAULT NOW(),
-     updated_at TIMESTAMPTZ DEFAULT NOW()
-   );
-
-   -- Price cache table
-   CREATE TABLE price_cache (
-     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-     metal_type TEXT NOT NULL UNIQUE CHECK (metal_type IN ('gold', 'silver')),
-     price_aud DECIMAL(10, 2) NOT NULL,
-     updated_at TIMESTAMPTZ DEFAULT NOW()
-   );
-
-   -- Price history table
-   CREATE TABLE price_history (
-     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-     metal_type TEXT NOT NULL CHECK (metal_type IN ('gold', 'silver')),
-     price_aud DECIMAL(10, 2) NOT NULL,
-     recorded_date DATE NOT NULL,
-     created_at TIMESTAMPTZ DEFAULT NOW(),
-     UNIQUE(metal_type, recorded_date)
-   );
-
-   -- Enable Row Level Security
-   ALTER TABLE holdings ENABLE ROW LEVEL SECURITY;
-   ALTER TABLE price_cache ENABLE ROW LEVEL SECURITY;
-   ALTER TABLE price_history ENABLE ROW LEVEL SECURITY;
-
-   -- RLS Policies for holdings
-   CREATE POLICY "Users can view own holdings"
-     ON holdings FOR SELECT
-     USING (auth.uid() = user_id);
-
-   CREATE POLICY "Users can insert own holdings"
-     ON holdings FOR INSERT
-     WITH CHECK (auth.uid() = user_id);
-
-   CREATE POLICY "Users can update own holdings"
-     ON holdings FOR UPDATE
-     USING (auth.uid() = user_id);
-
-   CREATE POLICY "Users can delete own holdings"
-     ON holdings FOR DELETE
-     USING (auth.uid() = user_id);
-
-   -- RLS Policies for price_cache (public read)
-   CREATE POLICY "Anyone can view price cache"
-     ON price_cache FOR SELECT
-     USING (true);
-
-   -- RLS Policies for price_history (public read)
-   CREATE POLICY "Anyone can view price history"
-     ON price_history FOR SELECT
-     USING (true);
+   Create a local database (e.g. `createdb preciousvalt`), then run Drizzle migrations:
+   ```bash
+   pnpm db:push
    ```
+   Or generate and run migrations:
+   ```bash
+   pnpm db:generate
+   pnpm db:migrate
+   ```
+   To browse data locally: `pnpm db:studio` (opens Drizzle Studio in the browser).
 
 5. **Run the development server**
    ```bash
@@ -202,14 +147,40 @@ Stop juggling multiple apps and websites to track your precious metals investmen
 
 ---
 
+## Deploying to Vercel (with Neon)
+
+1. **Create a Neon project** at [neon.tech](https://neon.tech), then copy the connection string (use the **pooled** connection for serverless).
+
+2. **In your Vercel project**, add environment variables:
+   - `DATABASE_URL` — Neon connection string
+   - `AUTH_SECRET` — same as local (or generate a new one)
+   - `METALS_DEV_KEY` — your Metals.dev API key
+   - `NEXT_PUBLIC_APP_URL` — your Vercel URL (e.g. `https://your-app.vercel.app`)
+   - Optional: `CRON_SECRET` — a secret string; set this and Vercel Cron will send `Authorization: Bearer <CRON_SECRET>` when calling the daily digest endpoint.
+
+3. **Run migrations** against the Neon database (e.g. from your machine with `DATABASE_URL` set to the Neon URL):
+   ```bash
+   pnpm db:push
+   ```
+
+4. **Daily digest cron**: The app includes a cron job that runs once per day (8:00 UTC) and sends Discord messages to users who have enabled the daily digest and set a webhook URL. The job is configured in `vercel.json`. Ensure `CRON_SECRET` is set in Vercel so the route is protected.
+
+---
+
 ## Available Scripts
 
 ```bash
 # Development
 pnpm dev              # Start development server with Turbo
-pnpm build           # Build for production
-pnpm start           # Start production server
-pnpm preview         # Build and preview production
+pnpm build            # Build for production
+pnpm start            # Start production server
+pnpm preview          # Build and preview production
+
+# Database (Drizzle)
+pnpm db:generate      # Generate migrations from schema
+pnpm db:push          # Push schema to database (dev)
+pnpm db:migrate       # Run migrations
+pnpm db:studio        # Open Drizzle Studio in browser
 
 # Code Quality
 pnpm lint            # Run ESLint
@@ -246,13 +217,24 @@ GET https://api.metals.dev/v1/latest?api_key={KEY}&currency=AUD&unit=toz
 
 ## Database Schema
 
+### Users
+Local user accounts (NextAuth Credentials).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `email` | TEXT | Unique email |
+| `password_hash` | TEXT | Hashed password |
+| `created_at` | TIMESTAMPTZ | Record creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last update timestamp |
+
 ### Holdings
 Stores user precious metals holdings with purchase information and notes.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID | Primary key |
-| `user_id` | UUID | Foreign key to auth.users |
+| `user_id` | UUID | Foreign key to users |
 | `metal_type` | TEXT | 'gold' or 'silver' |
 | `weight_oz` | DECIMAL | Weight in troy ounces |
 | `form_type` | TEXT | 'bar' or 'coin' |
@@ -285,6 +267,17 @@ Historical daily prices for chart visualization.
 | `recorded_date` | DATE | Date of price record |
 | `created_at` | TIMESTAMPTZ | Record creation timestamp |
 
+### Notification Settings
+Per-user daily digest preferences (Discord webhook).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `user_id` | UUID | Primary key, foreign key to users |
+| `daily_digest_enabled` | BOOLEAN | Whether to send daily digest |
+| `discord_webhook_url` | TEXT | Discord webhook URL (optional) |
+| `created_at` | TIMESTAMPTZ | Record creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last update timestamp |
+
 ---
 
 ## Project Structure
@@ -308,7 +301,11 @@ precious-valt/
 │   │       ├── trpc.ts        # tRPC configuration
 │   │       └── routers/       # API route handlers
 │   │           ├── prices.ts  # Price fetching & caching
-│   │           └── holdings.ts # Holdings CRUD operations
+│   │           ├── holdings.ts # Holdings CRUD operations
+│   │           └── notification-settings.ts
+│   │   └── db/                # Drizzle schema and client
+│   │       ├── schema.ts
+│   │       └── index.ts
 │   │
 │   ├── components/
 │   │   ├── ui/                # Shadcn UI components
@@ -317,7 +314,6 @@ precious-valt/
 │   │   └── charts/            # Chart components
 │   │
 │   ├── lib/                   # Utility libraries
-│   │   ├── supabase.ts        # Supabase clients
 │   │   └── utils.ts           # Helper functions
 │   │
 │   ├── types/                 # TypeScript type definitions
@@ -353,10 +349,10 @@ precious-valt/
 - **Allocation**: Percentage breakdown of gold vs silver holdings
 
 ### Security
-- Supabase authentication with email/password
-- Row Level Security (RLS) policies protecting user data
-- JWT token-based API authentication
+- NextAuth (Credentials provider) with email/password and bcrypt
+- Session-based authentication (JWT strategy)
 - Protected tRPC procedures for all user operations
+- User data scoped by session in application logic
 
 ### User Experience
 - Responsive design for mobile and desktop
@@ -388,9 +384,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - [Metals.dev](https://metals.dev/) for providing precious metals pricing API
-- [Supabase](https://supabase.com/) for backend infrastructure
-- [Shadcn UI](https://ui.shadcn.com/) for beautiful component primitives
-- [Next.js](https://nextjs.org/) team for the amazing framework
+- [Neon](https://neon.tech/) for serverless PostgreSQL
+- [Drizzle ORM](https://orm.drizzle.team/) for schema and migrations
+- [NextAuth](https://next-auth.js.org/) for authentication
+- [Shadcn UI](https://ui.shadcn.com/) for component primitives
+- [Next.js](https://nextjs.org/) team for the framework
 
 ---
 

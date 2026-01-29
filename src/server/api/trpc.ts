@@ -9,8 +9,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
-import { supabaseAdmin } from "~/lib/supabase-server";
-import type { User } from "@supabase/supabase-js";
+import { auth } from "~/auth";
 
 /**
  * 1. CONTEXT
@@ -26,26 +25,14 @@ import type { User } from "@supabase/supabase-js";
  */
 interface Context {
   headers: Headers;
-  user: User | null;
+  user: { id: string; email: string } | null;
 }
 
 export const createTRPCContext = async (opts: { headers: Headers }): Promise<Context> => {
-  // Extract authorization header
-  const authHeader = opts.headers.get("authorization");
-  let user = null;
-
-  if (authHeader?.startsWith("Bearer ")) {
-    const token = authHeader.substring(7);
-    
-    try {
-      const { data: { user: authUser }, error } = await supabaseAdmin.auth.getUser(token);
-      if (!error && authUser) {
-        user = authUser;
-      }
-    } catch (error) {
-      console.error("Error verifying token:", error);
-    }
-  }
+  const session = await auth();
+  const user = session?.user?.id
+    ? { id: session.user.id, email: session.user.email ?? "" }
+    : null;
 
   return {
     headers: opts.headers,

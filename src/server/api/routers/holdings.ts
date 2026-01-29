@@ -1,22 +1,50 @@
 import { z } from "zod";
+import { eq, and, desc } from "drizzle-orm";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { supabaseAdmin } from "~/lib/supabase-server";
+import { db } from "~/server/db";
+import { holdings as holdingsTable, priceCache } from "~/server/db/schema";
 import type { Holding, HoldingSummary } from "~/types/holdings";
 
-export const holdingsRouter = createTRPCRouter({
-  // Get all holdings for the current user
-  getAll: protectedProcedure.query(async ({ ctx }): Promise<Holding[]> => {
-    const { data, error } = await supabaseAdmin
-      .from("holdings")
-      .select("*")
-      .eq("user_id", ctx.user.id)
-      .order("created_at", { ascending: false });
+function rowToHolding(row: {
+  id: string;
+  userId: string;
+  metalType: "gold" | "silver";
+  weightOz: string;
+  formType: "bar" | "coin";
+  denomination: string;
+  quantity: number;
+  purchasePriceAud: string | null;
+  purchaseDate: Date | null;
+  notes: string | null;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+}): Holding {
+  return {
+    id: row.id,
+    user_id: row.userId,
+    metal_type: row.metalType,
+    weight_oz: Number(row.weightOz),
+    form_type: row.formType,
+    denomination: row.denomination,
+    quantity: row.quantity,
+    purchase_price_aud: row.purchasePriceAud ? Number(row.purchasePriceAud) : undefined,
+    purchase_date: row.purchaseDate?.toISOString(),
+    notes: row.notes ?? undefined,
+    created_at: row.createdAt?.toISOString() ?? "",
+    updated_at: row.updatedAt?.toISOString() ?? "",
+  };
+}
 
-    if (error) throw new Error(error.message);
-    return (data as Holding[]) ?? [];
+export const holdingsRouter = createTRPCRouter({
+  getAll: protectedProcedure.query(async ({ ctx }): Promise<Holding[]> => {
+    const rows = await db
+      .select()
+      .from(holdingsTable)
+      .where(eq(holdingsTable.userId, ctx.user.id))
+      .orderBy(desc(holdingsTable.createdAt));
+    return rows.map(rowToHolding);
   }),
 
-  // Create a new holding
   create: protectedProcedure
     .input(
       z.object({
@@ -31,27 +59,24 @@ export const holdingsRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }): Promise<Holding> => {
-      const result = await supabaseAdmin
-        .from("holdings")
-        .insert({
-          user_id: ctx.user.id,
-          metal_type: input.metal_type,
-          weight_oz: input.weight_oz,
-          form_type: input.form_type,
+      const [row] = await db
+        .insert(holdingsTable)
+        .values({
+          userId: ctx.user.id,
+          metalType: input.metal_type,
+          weightOz: String(input.weight_oz),
+          formType: input.form_type,
           denomination: input.denomination,
           quantity: input.quantity,
-          purchase_price_aud: input.purchase_price_aud,
-          purchase_date: input.purchase_date,
-          notes: input.notes,
+          purchasePriceAud: input.purchase_price_aud != null ? String(input.purchase_price_aud) : null,
+          purchaseDate: input.purchase_date ? new Date(input.purchase_date) : null,
+          notes: input.notes ?? null,
         })
-        .select()
-        .single();
-
-      if (result.error) throw new Error(result.error.message);
-      return result.data as Holding;
+        .returning();
+      if (!row) throw new Error("Failed to create holding");
+      return rowToHolding(row);
     }),
 
-  // Update a holding
   update: protectedProcedure
     .input(
       z.object({
@@ -67,72 +92,52 @@ export const holdingsRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }): Promise<Holding> => {
-      const { id, ...updateData } = input;
-      
-      const result = await supabaseAdmin
-        .from("holdings")
-        .update({
-          metal_type: updateData.metal_type,
-          weight_oz: updateData.weight_oz,
-          form_type: updateData.form_type,
-          denomination: updateData.denomination,
-          quantity: updateData.quantity,
-          purchase_price_aud: updateData.purchase_price_aud,
-          purchase_date: updateData.purchase_date,
-          notes: updateData.notes,
+      const { id, ...updates } = input;
+      const [row] = await db
+        .update(holdingsTable)
+        .set({
+          ...(updates.metal_type != null && { metalType: updates.metal_type }),
+          ...(updates.weight_oz != null && { weightOz: String(updates.weight_oz) }),
+          ...(updates.form_type != null && { formType: updates.form_type }),
+          ...(updates.denomination != null && { denomination: updates.denomination }),
+          ...(updates.quantity != null && { quantity: updates.quantity }),
+          ...(updates.purchase_price_aud != null && { purchasePriceAud: String(updates.purchase_price_aud) }),
+          ...(updates.purchase_date != null && { purchaseDate: new Date(updates.purchase_date) }),
+          ...(updates.notes !== undefined && { notes: updates.notes ?? null }),
+          updatedAt: new Date(),
         })
-        .eq("id", id)
-        .eq("user_id", ctx.user.id) // Ensure user can only update their own holdings
-        .select()
-        .single();
-
-      if (result.error) throw new Error(result.error.message);
-      return result.data as Holding;
+        .where(and(eq(holdingsTable.id, id), eq(holdingsTable.userId, ctx.user.id)))
+        .returning();
+      if (!row) throw new Error("Holding not found or access denied");
+      return rowToHolding(row);
     }),
 
-  // Delete a holding
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const { error } = await supabaseAdmin
-        .from("holdings")
-        .delete()
-        .eq("id", input.id)
-        .eq("user_id", ctx.user.id); // Ensure user can only delete their own holdings
-
-      if (error) throw new Error(error.message);
+      await db
+        .delete(holdingsTable)
+        .where(and(eq(holdingsTable.id, input.id), eq(holdingsTable.userId, ctx.user.id)));
       return { success: true };
     }),
 
-  // Get portfolio summary
   getSummary: protectedProcedure.query(async ({ ctx }): Promise<HoldingSummary> => {
-    const { data: holdings, error } = await supabaseAdmin
-      .from("holdings")
-      .select("*")
-      .eq("user_id", ctx.user.id);
+    const holdingsRows = await db
+      .select()
+      .from(holdingsTable)
+      .where(eq(holdingsTable.userId, ctx.user.id));
+    const pricesRows = await db.select().from(priceCache);
 
-    if (error) throw new Error(error.message);
+    const goldPrice = Number(pricesRows.find((p) => p.metalType === "gold")?.priceAud ?? 0);
+    const silverPrice = Number(pricesRows.find((p) => p.metalType === "silver")?.priceAud ?? 0);
 
-    // Get current prices from cache (this will trigger API call if cache is stale)
-    const { data: prices, error: priceError } = await supabaseAdmin
-      .from("price_cache")
-      .select("*");
-
-    if (priceError) throw new Error(priceError.message);
-
-    const pricesArray = prices as Array<{ metal_type: string; price_aud: number }> ?? [];
-    const goldPrice = pricesArray.find((p: { metal_type: string; price_aud: number }) => p.metal_type === 'gold')?.price_aud ?? 0;
-    const silverPrice = pricesArray.find((p: { metal_type: string; price_aud: number }) => p.metal_type === 'silver')?.price_aud ?? 0;
-
-    // Calculate totals
-    const holdingsArray = holdings as Holding[] ?? [];
+    const holdingsArray = holdingsRows.map(rowToHolding);
     const totalGoldOz = holdingsArray
-      .filter((h: Holding) => h.metal_type === 'gold')
-      .reduce((sum: number, h: Holding) => sum + (h.weight_oz * h.quantity), 0);
-
+      .filter((h) => h.metal_type === "gold")
+      .reduce((sum, h) => sum + h.weight_oz * h.quantity, 0);
     const totalSilverOz = holdingsArray
-      .filter((h: Holding) => h.metal_type === 'silver')
-      .reduce((sum: number, h: Holding) => sum + (h.weight_oz * h.quantity), 0);
+      .filter((h) => h.metal_type === "silver")
+      .reduce((sum, h) => sum + h.weight_oz * h.quantity, 0);
 
     const goldValue = totalGoldOz * goldPrice;
     const silverValue = totalSilverOz * silverPrice;
@@ -150,18 +155,19 @@ export const holdingsRouter = createTRPCRouter({
     };
   }),
 
-  // Get holdings by metal type
   getByMetalType: protectedProcedure
     .input(z.object({ metal_type: z.enum(["gold", "silver"]) }))
     .query(async ({ ctx, input }): Promise<Holding[]> => {
-      const { data, error } = await supabaseAdmin
-        .from("holdings")
-        .select("*")
-        .eq("user_id", ctx.user.id)
-        .eq("metal_type", input.metal_type)
-        .order("created_at", { ascending: false });
-
-      if (error) throw new Error(error.message);
-      return (data as Holding[]) ?? [];
+      const rows = await db
+        .select()
+        .from(holdingsTable)
+        .where(
+          and(
+            eq(holdingsTable.userId, ctx.user.id),
+            eq(holdingsTable.metalType, input.metal_type)
+          )
+        )
+        .orderBy(desc(holdingsTable.createdAt));
+      return rows.map(rowToHolding);
     }),
 });

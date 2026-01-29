@@ -1,12 +1,12 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif,
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-display: var(--font-display), var(--font-sans), serif;
 }
 
 @theme inline {
@@ -48,38 +48,38 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(0.04 0 0); /* #0a0a0a */
-  --foreground: oklch(1 0 0); /* white */
-  --card: oklch(0.1 0 0); /* #1a1a1a */
-  --card-foreground: oklch(1 0 0);
-  --popover: oklch(0.1 0 0);
-  --popover-foreground: oklch(1 0 0);
-  --primary: oklch(0.6 0.15 45); /* amber-500 #f59e0b */
-  --primary-foreground: oklch(0 0 0); /* black */
-  --secondary: oklch(0.16 0 0); /* #262626 */
-  --secondary-foreground: oklch(1 0 0);
-  --muted: oklch(0.16 0 0);
-  --muted-foreground: oklch(0.64 0 0); /* #a3a3a3 */
-  --accent: oklch(0.16 0 0);
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.6 0.15 15); /* red-500 */
-  --border: oklch(0.25 0 0); /* gray-800 */
-  --input: oklch(0.25 0 0);
-  --ring: oklch(0.6 0.15 45); /* amber-500 */
-  --chart-1: oklch(0.6 0.15 45); /* amber */
-  --chart-2: oklch(0.5 0.1 60); /* yellow */
-  --chart-3: oklch(0.7 0.15 30); /* orange */
-  --chart-4: oklch(0.6 0.15 15); /* red */
-  --chart-5: oklch(0.5 0.1 120); /* green */
-  --sidebar: oklch(0.04 0 0); /* #0a0a0a */
-  --sidebar-foreground: oklch(1 0 0);
-  --sidebar-primary: oklch(0.6 0.15 45); /* amber-500 */
-  --sidebar-primary-foreground: oklch(0 0 0);
-  --sidebar-accent: oklch(0.16 0 0);
-  --sidebar-accent-foreground: oklch(1 0 0);
-  --sidebar-border: oklch(0.25 0 0);
-  --sidebar-ring: oklch(0.6 0.15 45);
+  --radius: 0.5rem;
+  --background: oklch(0.06 0.01 85); /* warm near-black */
+  --foreground: oklch(0.98 0 0);
+  --card: oklch(0.1 0.01 85);
+  --card-foreground: oklch(0.98 0 0);
+  --popover: oklch(0.1 0.01 85);
+  --popover-foreground: oklch(0.98 0 0);
+  --primary: oklch(0.72 0.14 75); /* refined gold */
+  --primary-foreground: oklch(0.12 0.02 75);
+  --secondary: oklch(0.14 0.01 85);
+  --secondary-foreground: oklch(0.95 0 0);
+  --muted: oklch(0.14 0.01 85);
+  --muted-foreground: oklch(0.58 0 0);
+  --accent: oklch(0.18 0.02 75);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.55 0.2 25);
+  --border: oklch(0.22 0.01 85);
+  --input: oklch(0.22 0.01 85);
+  --ring: oklch(0.72 0.14 75);
+  --chart-1: oklch(0.72 0.14 75);
+  --chart-2: oklch(0.65 0.1 85);
+  --chart-3: oklch(0.6 0.12 55);
+  --chart-4: oklch(0.55 0.2 25);
+  --chart-5: oklch(0.55 0.12 145);
+  --sidebar: oklch(0.06 0.01 85);
+  --sidebar-foreground: oklch(0.98 0 0);
+  --sidebar-primary: oklch(0.72 0.14 75);
+  --sidebar-primary-foreground: oklch(0.12 0.02 75);
+  --sidebar-accent: oklch(0.14 0.01 85);
+  --sidebar-accent-foreground: oklch(0.98 0 0);
+  --sidebar-border: oklch(0.22 0.01 85);
+  --sidebar-ring: oklch(0.72 0.14 75);
 }
 
 @layer base {
@@ -88,6 +88,21 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image: radial-gradient(ellipse 120% 80% at 50% -20%, oklch(0.15 0.03 75 / 0.4), transparent);
+  }
+  .font-display {
+    font-family: var(--font-display), var(--font-sans), serif;
+  }
+}
+
+@keyframes stagger-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -131,4 +146,10 @@
   .sidebar-nav-item-text {
     @apply hidden md:inline;
   }
+
+  .stagger-1 { animation: stagger-in 0.4s ease-out both; }
+  .stagger-2 { animation: stagger-in 0.4s ease-out 0.05s both; }
+  .stagger-3 { animation: stagger-in 0.4s ease-out 0.1s both; }
+  .stagger-4 { animation: stagger-in 0.4s ease-out 0.15s both; }
+  .stagger-5 { animation: stagger-in 0.4s ease-out 0.2s both; }
 }

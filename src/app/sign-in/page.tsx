@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { supabase } from "~/lib/supabase-client";
+import { signInAction } from "~/app/sign-in/actions";
 
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
@@ -23,7 +23,6 @@ type SignInForm = z.infer<typeof signInSchema>;
 export default function SignInPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   const form = useForm<SignInForm>({
     resolver: zodResolver(signInSchema),
@@ -37,22 +36,20 @@ export default function SignInPage() {
     setIsLoading(true);
     setError(null);
 
-    try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
-      });
-
-      if (error) {
-        setError(error.message);
-      } else {
-        router.push("/dashboard");
-      }
-    } catch {
-      setError("An unexpected error occurred. Please try again.");
-    } finally {
+    const formData = new FormData();
+    formData.set("email", data.email);
+    formData.set("password", data.password);
+    const result = await signInAction(formData);
+    if (result?.error) {
+      setError(result.error);
       setIsLoading(false);
+      return;
     }
+    if (result?.ok) {
+      window.location.href = "/dashboard";
+      return;
+    }
+    setIsLoading(false);
   };
 
   return (

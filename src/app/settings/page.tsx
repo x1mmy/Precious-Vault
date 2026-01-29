@@ -2,52 +2,58 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "~/lib/supabase-client";
+import { useSession, signOut } from "next-auth/react";
+import { api } from "~/trpc/react";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
+import { Input } from "~/components/ui/input";
+import { Label } from "~/components/ui/label";
 import { Sidebar } from "~/components/layout/sidebar";
 import { Badge } from "~/components/ui/badge";
-import { LogOut, User, Bell, Shield, Download } from "lucide-react";
+import { LogOut, User, Bell, Shield, Download, MessageSquare } from "lucide-react";
 
 export default function SettingsPage() {
-  const [user, setUser] = useState<{ email?: string; created_at?: string } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: session, status } = useSession();
   const router = useRouter();
+  const { data: notificationSettings, refetch: refetchNotificationSettings } =
+    api.notificationSettings.get.useQuery();
+  const updateNotificationSettings = api.notificationSettings.update.useMutation({
+    onSuccess: () => void refetchNotificationSettings(),
+  });
+  const sendTestMessage = api.notificationSettings.sendTestMessage.useMutation();
+
+  const [dailyDigestEnabled, setDailyDigestEnabled] = useState(false);
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState("");
 
   useEffect(() => {
-    const getUser = async () => {
-      const { data: { user }, error } = await supabase.auth.getUser();
-      
-      if (error || !user) {
-        router.push("/sign-in");
-      } else {
-        setUser(user);
-      }
-      setLoading(false);
-    };
+    if (notificationSettings) {
+      setDailyDigestEnabled(notificationSettings.dailyDigestEnabled ?? false);
+      setDiscordWebhookUrl(notificationSettings.discordWebhookUrl ?? "");
+    }
+  }, [notificationSettings]);
 
-    void getUser();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' || !session) {
-        router.push("/sign-in");
-      } else {
-        setUser(session.user);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [router]);
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/sign-in");
+    }
+  }, [status, router]);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push("/");
+    await signOut({ callbackUrl: "/" });
   };
 
+  const user = session?.user;
+  const loading = status === "loading";
+
   const handleExportData = async () => {
-    // This would export user data as CSV
     alert("Export functionality will be implemented soon!");
+  };
+
+  const handleSaveDailyDigest = () => {
+    updateNotificationSettings.mutate({
+      dailyDigestEnabled,
+      discordWebhookUrl: discordWebhookUrl.trim() || "",
+    });
   };
 
   if (loading) {
@@ -101,14 +107,81 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">
-              Member Since
-            </label>
-            <p className="text-sm">
-              {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'Unknown'}
-            </p>
+        </CardContent>
+      </Card>
+
+      {/* Daily digest */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <MessageSquare className="w-5 h-5" />
+            Daily Digest
+          </CardTitle>
+          <CardDescription>
+            Get a daily message with gold and silver spot prices and your total portfolio value via Discord
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium">Send daily summary</p>
+              <p className="text-sm text-muted-foreground">
+                Receive gold/silver prices and your portfolio value once per day
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={dailyDigestEnabled}
+              onClick={() => setDailyDigestEnabled((v) => !v)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                dailyDigestEnabled ? "bg-primary" : "bg-input"
+              }`}
+            >
+              <span
+                className={`pointer-events-none block h-5 w-5 rounded-full bg-primary-foreground shadow ring-0 transition-transform ${
+                  dailyDigestEnabled ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
           </div>
+          {dailyDigestEnabled && (
+            <div className="space-y-2">
+              <Label htmlFor="discord-webhook">Discord webhook URL</Label>
+              <Input
+                id="discord-webhook"
+                type="url"
+                placeholder="https://discord.com/api/webhooks/..."
+                value={discordWebhookUrl}
+                onChange={(e) => setDiscordWebhookUrl(e.target.value)}
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Create a webhook in Discord: Server → Channel → Integrations → Webhooks → New Webhook, then paste the URL here.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => sendTestMessage.mutate()}
+                disabled={sendTestMessage.isPending || !discordWebhookUrl.trim()}
+              >
+                {sendTestMessage.isPending ? "Sending..." : "Send test message"}
+              </Button>
+              {sendTestMessage.isSuccess && (
+                <p className="text-xs text-green-600 dark:text-green-400">Test message sent. Check your Discord channel.</p>
+              )}
+              {sendTestMessage.isError && (
+                <p className="text-xs text-destructive">{sendTestMessage.error.message}</p>
+              )}
+            </div>
+          )}
+          <Button
+            onClick={handleSaveDailyDigest}
+            disabled={updateNotificationSettings.isPending}
+          >
+            {updateNotificationSettings.isPending ? "Saving..." : "Save"}
+          </Button>
         </CardContent>
       </Card>
 
@@ -235,7 +308,7 @@ export default function SettingsPage() {
           <div>
             <p className="text-sm text-muted-foreground">
               PreciousVault is a modern portfolio tracker for precious metals investors. 
-              Built with Next.js, TypeScript, and Supabase for secure, real-time portfolio management.
+              Built with Next.js, TypeScript, and PostgreSQL for secure, real-time portfolio management.
             </p>
           </div>
         </CardContent>

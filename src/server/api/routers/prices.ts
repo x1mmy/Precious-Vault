@@ -1,98 +1,73 @@
+import { eq, and, gte } from "drizzle-orm";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
-import { supabaseAdmin } from "~/lib/supabase-server";
+import { db } from "~/server/db";
+import { priceCache, priceHistory } from "~/server/db/schema";
 import { env } from "~/env.js";
 import { z } from "zod";
 import type { PriceCache } from "~/types/holdings";
 import type { MetalsDevResponse } from "~/types/api";
-import type { DetailedPrices, PriceHistory } from "~/types/prices";
+import type { DetailedPrices, PriceHistory as PriceHistoryType } from "~/types/prices";
+
+function priceRowToCache(row: { id: string; metalType: string; priceAud: string; updatedAt: Date | null }): PriceCache {
+  return {
+    id: row.id,
+    metal_type: row.metalType as "gold" | "silver",
+    price_aud: Number(row.priceAud),
+    updated_at: row.updatedAt?.toISOString() ?? "",
+  };
+}
 
 export const pricesRouter = createTRPCRouter({
   getCurrentPrices: publicProcedure.query(async (): Promise<PriceCache[]> => {
-    const { data, error } = await supabaseAdmin
-      .from("price_cache")
-      .select("*");
-
-    if (error) {
-      console.error("Error fetching prices:", error);
-      return [];
-    }
-    return (data as PriceCache[]) ?? [];
+    const rows = await db.select().from(priceCache);
+    return rows.map(priceRowToCache);
   }),
 
   getDetailedPrices: publicProcedure.query(async (): Promise<DetailedPrices> => {
     try {
-      // Check if we have valid cached data (less than 6 hours old)
-      const { data: cachedPrices, error } = await supabaseAdmin
-        .from("price_cache")
-        .select("*");
-
-      if (error) {
-        console.error("Error fetching cached prices:", error);
-        return await getCachedPrices();
-      }
-
+      const cachedRows = await db.select().from(priceCache);
       const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
-      const pricesArray = cachedPrices as PriceCache[] ?? [];
-      const hasValidCache = pricesArray.every((price: PriceCache) => 
-        new Date(price.updated_at) > sixHoursAgo
-      );
+      const hasValidCache =
+        cachedRows.length === 2 &&
+        cachedRows.every((p) => p.updatedAt && new Date(p.updatedAt) > sixHoursAgo);
 
-      // If we have valid cached data, return it
-      if (hasValidCache && pricesArray.length === 2) {
-        const goldPrice = pricesArray.find((p: PriceCache) => p.metal_type === 'gold');
-        const silverPrice = pricesArray.find((p: PriceCache) => p.metal_type === 'silver');
-        
-        if (goldPrice && silverPrice) {
+      if (hasValidCache) {
+        const gold = cachedRows.find((p) => p.metalType === "gold");
+        const silver = cachedRows.find((p) => p.metalType === "silver");
+        if (gold && silver) {
           return {
             gold: {
-              price: goldPrice.price_aud,
-              timestamp: goldPrice.updated_at,
+              price: Number(gold.priceAud),
+              timestamp: gold.updatedAt?.toISOString() ?? "",
             },
             silver: {
-              price: silverPrice.price_aud,
-              timestamp: silverPrice.updated_at,
+              price: Number(silver.priceAud),
+              timestamp: silver.updatedAt?.toISOString() ?? "",
             },
           };
         }
       }
 
-      // Cache is stale or missing, fetch fresh data from metals.dev
       if (!env.METALS_DEV_KEY) {
-        console.warn('METALS_DEV_KEY not configured');
         return await getCachedPrices();
       }
 
       const response = await fetch(
         `https://api.metals.dev/v1/latest?api_key=${env.METALS_DEV_KEY}&currency=AUD&unit=toz`
       );
+      if (!response.ok) return await getCachedPrices();
 
-      if (!response.ok) {
-        console.warn('Metals.dev API request failed. Using cached data.');
-        return await getCachedPrices();
-      }
+      const data = (await response.json()) as MetalsDevResponse;
+      if (data.status !== "success") return await getCachedPrices();
 
-      const data = await response.json() as MetalsDevResponse;
-
-      if (data.status !== 'success') {
-        console.warn('Metals.dev API returned error status. Using cached data.');
-        return await getCachedPrices();
-      }
-
-      // Update price_cache with fresh data
       await updatePriceCache(data.metals.gold, data.metals.silver, data.timestamps.metal);
 
       return {
-        gold: {
-          price: data.metals.gold,
-          timestamp: data.timestamps.metal,
-        },
-        silver: {
-          price: data.metals.silver,
-          timestamp: data.timestamps.metal,
-        },
+        gold: { price: data.metals.gold, timestamp: data.timestamps.metal },
+        silver: { price: data.metals.silver, timestamp: data.timestamps.metal },
       };
     } catch (error) {
-      console.error("Error fetching detailed prices from metals.dev:", error);
+      console.error("Error fetching detailed prices:", error);
       return await getCachedPrices();
     }
   }),
@@ -100,111 +75,104 @@ export const pricesRouter = createTRPCRouter({
   getPriceHistory: publicProcedure
     .input(
       z.object({
-        metal_type: z.enum(['gold', 'silver']).optional(),
+        metal_type: z.enum(["gold", "silver"]).optional(),
         days: z.number().min(1).max(365).default(30),
       })
     )
-    .query(async ({ input }): Promise<PriceHistory[]> => {
-      const { data, error } = await supabaseAdmin
-        .from("price_history")
-        .select("*")
-        .eq(input.metal_type ? "metal_type" : "metal_type", input.metal_type ?? "gold")
-        .gte("recorded_date", new Date(Date.now() - input.days * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
-        .order("recorded_date", { ascending: true });
+    .query(async ({ input }): Promise<PriceHistoryType[]> => {
+      const fromDate = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split("T")[0]!;
+      const metalType = input.metal_type ?? "gold";
+      const rows = await db
+        .select()
+        .from(priceHistory)
+        .where(
+          and(
+            eq(priceHistory.metalType, metalType),
+            gte(priceHistory.recordedDate, fromDate)
+          )
+        )
+        .orderBy(priceHistory.recordedDate);
 
-      if (error) {
-        console.error("Error fetching price history:", error);
-        return [];
-      }
-      return (data as PriceHistory[]) ?? [];
+      return rows.map((r) => ({
+        id: r.id,
+        metal_type: r.metalType,
+        price_aud: Number(r.priceAud),
+        recorded_date: r.recordedDate,
+        created_at: r.createdAt?.toISOString() ?? "",
+      }));
     }),
 });
 
 async function getCachedPrices(): Promise<DetailedPrices> {
-  const { data: cachedPrices, error } = await supabaseAdmin
-    .from("price_cache")
-    .select("*");
-
-  if (error) {
-    console.error("Error fetching cached prices:", error);
-    return getMockPrices();
-  }
-
-  const pricesArray = cachedPrices as PriceCache[] ?? [];
-  if (!pricesArray.length) {
-    return getMockPrices();
-  }
-
-  const goldPrice = pricesArray.find((p: PriceCache) => p.metal_type === 'gold');
-  const silverPrice = pricesArray.find((p: PriceCache) => p.metal_type === 'silver');
-
+  const rows = await db.select().from(priceCache);
+  const gold = rows.find((p) => p.metalType === "gold");
+  const silver = rows.find((p) => p.metalType === "silver");
+  const now = new Date().toISOString();
   return {
     gold: {
-      price: goldPrice?.price_aud ?? 3000.00,
-      timestamp: goldPrice?.updated_at ?? new Date().toISOString(),
+      price: gold ? Number(gold.priceAud) : 3000,
+      timestamp: gold?.updatedAt?.toISOString() ?? now,
     },
     silver: {
-      price: silverPrice?.price_aud ?? 40.00,
-      timestamp: silverPrice?.updated_at ?? new Date().toISOString(),
+      price: silver ? Number(silver.priceAud) : 40.25,
+      timestamp: silver?.updatedAt?.toISOString() ?? now,
     },
   };
 }
 
-async function updatePriceCache(goldPrice: number, silverPrice: number, _timestamp: string): Promise<void> {
-  const now = new Date().toISOString();
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+async function updatePriceCache(
+  goldPrice: number,
+  silverPrice: number,
+  _timestamp: string
+): Promise<void> {
+  const now = new Date();
+  const today = new Date().toISOString().split("T")[0]!;
 
-  try {
-    // Update price_cache table
-    await supabaseAdmin
-      .from("price_cache")
-      .upsert([
-        {
-          metal_type: 'gold',
-          price_aud: goldPrice,
-          updated_at: now,
-        },
-        {
-          metal_type: 'silver',
-          price_aud: silverPrice,
-          updated_at: now,
-        },
-      ], {
-        onConflict: 'metal_type',
-      });
+  await db
+    .insert(priceCache)
+    .values({
+      metalType: "gold",
+      priceAud: String(goldPrice),
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: priceCache.metalType,
+      set: { priceAud: String(goldPrice), updatedAt: now },
+    });
+  await db
+    .insert(priceCache)
+    .values({
+      metalType: "silver",
+      priceAud: String(silverPrice),
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: priceCache.metalType,
+      set: { priceAud: String(silverPrice), updatedAt: now },
+    });
 
-    // Insert into price_history table (only once per day)
-    await supabaseAdmin
-      .from("price_history")
-      .upsert([
-        {
-          metal_type: 'gold',
-          price_aud: goldPrice,
-          recorded_date: today,
-        },
-        {
-          metal_type: 'silver',
-          price_aud: silverPrice,
-          recorded_date: today,
-        },
-      ], {
-        onConflict: 'metal_type,recorded_date',
-      });
-  } catch (error) {
-    console.error("Error updating price cache:", error);
-  }
-}
-
-function getMockPrices(): DetailedPrices {
-  const now = new Date().toISOString();
-  return {
-    gold: {
-      price: 3000.00,
-      timestamp: now,
-    },
-    silver: {
-      price: 40.25,
-      timestamp: now,
-    },
-  };
+  await db
+    .insert(priceHistory)
+    .values({
+      metalType: "gold",
+      priceAud: String(goldPrice),
+      recordedDate: today,
+    })
+    .onConflictDoUpdate({
+      target: [priceHistory.metalType, priceHistory.recordedDate],
+      set: { priceAud: String(goldPrice) },
+    });
+  await db
+    .insert(priceHistory)
+    .values({
+      metalType: "silver",
+      priceAud: String(silverPrice),
+      recordedDate: today,
+    })
+    .onConflictDoUpdate({
+      target: [priceHistory.metalType, priceHistory.recordedDate],
+      set: { priceAud: String(silverPrice) },
+    });
 }

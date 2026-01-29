@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { supabase } from "~/lib/supabase-client";
+import { signUp } from "~/app/sign-up/actions";
 
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
@@ -43,26 +43,15 @@ export default function SignUpPage() {
     setIsLoading(true);
     setError(null);
 
-    try {
-      const { error } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-      });
-
-      if (error) {
-        setError(error.message);
-      } else {
-        setSuccess(true);
-        // Redirect to dashboard after successful signup
-        setTimeout(() => {
-          router.push("/dashboard");
-        }, 2000);
-      }
-    } catch {
-      setError("An unexpected error occurred. Please try again.");
-    } finally {
+    const result = await signUp(data.email, data.password);
+    if (result?.error) {
+      setError(result.error);
       setIsLoading(false);
+      return;
     }
+    setSuccess(true);
+    router.push("/dashboard");
+    setIsLoading(false);
   };
 
   if (success) {

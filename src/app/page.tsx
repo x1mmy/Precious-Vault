@@ -7,10 +7,10 @@ export default function HomePage() {
     <main className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-4xl font-bold text-foreground">
+          <h1 className="font-display text-4xl font-normal text-foreground tracking-tight">
             PreciousVault
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground text-lg">
             Track your gold and silver holdings with real-time pricing in AUD
           </p>
         </div>

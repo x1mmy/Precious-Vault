@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "~/lib/supabase-client";
+import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
-import type { AuthState } from "~/types/auth";
 import type { Holding, HoldingSummary } from "~/types/holdings";
 import type { DetailedPrices } from "~/types/prices";
 import type { HoldingsSummaryOutput } from "~/types/trpc";
@@ -15,9 +14,9 @@ import { BarChart3, PieChart } from "lucide-react";
 import { PriceHistoryChart } from "~/components/charts/price-history";
 
 export default function AnalyticsPage() {
-  const [, setAuthState] = useState<AuthState>({ user: null, loading: true });
-  const [loading, setLoading] = useState(true);
+  const { status } = useSession();
   const router = useRouter();
+  const loading = status === "loading";
 
   // tRPC queries
   const { data: summary } = api.holdings.getSummary.useQuery() as { data: HoldingsSummaryOutput };
@@ -36,39 +35,10 @@ export default function AnalyticsPage() {
   const { data: detailedPrices } = api.prices.getDetailedPrices.useQuery() as { data: DetailedPrices | undefined };
 
   useEffect(() => {
-    const getUser = async () => {
-      try {
-        const { data: { user }, error } = await supabase.auth.getUser();
-        
-        if (error || !user) {
-          void router.push("/sign-in");
-        } else {
-          setAuthState({ user, loading: false });
-        }
-      } catch (error) {
-        console.error("Error getting user:", error);
-        void router.push("/sign-in");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void getUser();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_OUT' || !session) {
-        void router.push("/sign-in");
-      } else {
-        setAuthState({ user: session.user, loading: false });
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [router]);
+    if (status === "unauthenticated") {
+      void router.push("/sign-in");
+    }
+  }, [status, router]);
 
   const formatCurrency = (amount: number | null | undefined) => {
     if (amount == null) return '$0.00';

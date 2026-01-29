@@ -6,8 +6,6 @@ import { createTRPCReact } from "@trpc/react-query";
 import { type inferRouterInputs, type inferRouterOutputs } from "@trpc/server";
 import { useState } from "react";
 import SuperJSON from "superjson";
-import { supabase } from "~/lib/supabase-client";
-
 import { type AppRouter } from "~/server/api/root";
 import { createQueryClient } from "./query-client";
 
@@ -53,16 +51,9 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
         httpBatchStreamLink({
           transformer: SuperJSON,
           url: getBaseUrl() + "/api/trpc",
-          headers: async () => {
+          headers: () => {
             const headers = new Headers();
             headers.set("x-trpc-source", "nextjs-react");
-            
-            // Add authentication header if user is logged in
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.access_token) {
-              headers.set("authorization", `Bearer ${session.access_token}`);
-            }
-            
             return headers;
           },
         }),
