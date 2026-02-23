@@ -3,13 +3,15 @@ import { NextResponse } from "next/server";
 import { db } from "~/server/db";
 import { notificationSettings, holdings, priceCache } from "~/server/db/schema";
 import { eq } from "drizzle-orm";
+import { refreshPriceCache } from "~/server/refresh-price-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * Vercel Cron: call this route once per day (e.g. 0 8 * * * for 8am UTC).
- * Set CRON_SECRET in Vercel and send it as Authorization: Bearer <CRON_SECRET>.
+ * Vercel Cron: runs at 12:00 noon AEDT (1:00 UTC) — schedule "0 1 * * *".
+ * Fetches latest Metals.dev prices before sending so digest values are up to date.
+ * Set CRON_SECRET in Vercel and send Authorization: Bearer <CRON_SECRET>.
  */
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -17,6 +19,9 @@ export async function GET(req: NextRequest) {
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // Pull latest spot prices so digest is not stale
+  await refreshPriceCache();
 
   const allSettings = await db
     .select()

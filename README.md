@@ -163,7 +163,7 @@ Stop juggling multiple apps and websites to track your precious metals investmen
    pnpm db:push
    ```
 
-4. **Daily digest cron**: The app includes a cron job that runs once per day (8:00 UTC) and sends Discord messages to users who have enabled the daily digest and set a webhook URL. The job is configured in `vercel.json`. Ensure `CRON_SECRET` is set in Vercel so the route is protected.
+4. **Daily digest cron**: The app includes a cron job that runs once per day at 12:00 noon AEDT (1:00 UTC), fetches the latest Metals.dev spot prices, and sends Discord messages to users who have enabled the daily digest and set a webhook URL. The job is configured in `vercel.json`. Ensure `CRON_SECRET` is set in Vercel so the route is protected.
 
 ---
 

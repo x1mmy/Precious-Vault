@@ -48,7 +48,7 @@ After the first deploy, note your app URL and set `NEXT_PUBLIC_APP_URL` to it if
 
 ## 4. (Optional) Protect the daily digest cron
 
-The app has a cron that runs once per day (8:00 UTC) and sends Discord daily digests.
+The app has a cron that runs once per day at 12:00 noon AEDT (1:00 UTC) and sends Discord daily digests with the latest spot prices.
 
 - In Vercel → Project → **Settings** → **Environment Variables**, add:
   - `CRON_SECRET` = any long random string (e.g. from `openssl rand -base64 32`).
